@@ -8,8 +8,11 @@
 #include <time.h>
 #include <unistd.h>
 
-const size_t DATETIME_LENGTH = 28;
-const size_t SYSLOG_MSG_MAXLENGTH = 1024;
+#define DATETIME_LENGTH 28
+#define SYSLOG_MSG_MAXLENGTH 1024
+#define NUM_EVENTS_IN_EVENTLIST 8
+
+static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
 
 int timestamp_rfc3339( char* ap_output_buffer )
 {
@@ -33,7 +36,7 @@ int timestamp_rfc3339( char* ap_output_buffer )
       // Add the number of microseconds into the next second
       snprintf( &( ap_output_buffer[ num_chars_copied ] ),
                 DATETIME_LENGTH - num_chars_copied,
-                "%.6ldZ",
+                "%ldZ",
                 ( time_spec.tv_nsec / 1000 ) );
 
       to_return = 0;
@@ -45,26 +48,6 @@ int timestamp_rfc3339( char* ap_output_buffer )
 
 void send_events( int a_socket )
 {    
-  const int num_events = 8;
-  char* events[ num_events ];
-  events[ 0 ] = "Teardown UDP connection for faddr 80.58.4.34/37074 gaddr "
-                "10.0.0.187/53 laddr 192.168.0.2/53";
-  events[ 1 ] = "192.168.0.2 Accessed URL 212.227.109.224:/scriptlib/"
-                "ClientStdScripts.js";
-  events[ 2 ] = "Built outbound TCP connection 152083 for faddr "
-                "212.227.109.224/80 gaddr 10.0.0.187/56684 laddr "
-                "192.168.0.2/56684";
-  events[ 3 ] = "Teardown TCP connection 151957 faddr 212.227.109.224/80 gaddr "
-                "10.0.0.187/56613 laddr 192.168.0.2/56613 duration 0:04:56 "
-                "bytes 11069 (TCP Reset-I)";
-  events[ 4 ] = "Deny TCP (no connection) from 192.168.0.2/2799 to "
-                "192.168.202.1/2244 flags SYN ACK on interface inside";
-  events[ 5 ] = "Built UDP connection for faddr 211.9.32.235/32770 gaddr "
-                "10.0.0.187/53 laddr 192.168.0.2/53";
-  events[ 6 ] = "Authen Session End: user '', sid 1, elapsed 313 seconds";
-  events[ 7 ] = "Deny icmp src outside:Some-Cisco dst inside:10.0.0.187 "
-                "(type 3, code 1) by access-group \"outside_access_in\"";
-
   char timestamp[ DATETIME_LENGTH ];
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
@@ -72,33 +55,34 @@ void send_events( int a_socket )
   {
     if( timestamp_rfc3339( timestamp ) == 0 )
     {
-      /*snprintf( syslog_event,
-                SYSLOG_MSG_MAXLENGTH,
-                "<13>%s localhost.localdomain my.app: %s\n",
-                timestamp,
-                "I am Groot" );*/
-
       snprintf( syslog_event,
                 SYSLOG_MSG_MAXLENGTH,
                 "<13>%s localhost.localdomain my.app: %s\n",
                 timestamp,
-                events[ rand() % num_events ] );
+                gc_event_list[ rand() % NUM_EVENTS_IN_EVENTLIST ] );
 
       send( a_socket, syslog_event, strlen( syslog_event ), 0 );
+    }
+    else
+    {
+      printf( "It was not possible to generate a new timestamp.\n" );
+      break;
     }
   }
 }
 
 
-void* get_in_addr( const struct sockaddr* a_socket_address )
+void* get_in_addr( struct sockaddr* ap_socket_address )
 {
+  void* p_socket_address = ( void* ) ap_socket_address;
+
   // IPv4 or IPv6?
-  if ( a_socket_address->sa_family == AF_INET)
+  if ( ap_socket_address->sa_family == AF_INET)
   {
-    return &( ( ( struct sockaddr_in* )a_socket_address )->sin_addr );
+    return &( ( ( struct sockaddr_in* ) p_socket_address )->sin_addr );
   }
 
-  return &( ( ( struct sockaddr_in6* )a_socket_address )->sin6_addr );
+  return &( ( ( struct sockaddr_in6* ) p_socket_address )->sin6_addr );
 }
 
 
@@ -195,8 +179,38 @@ int create_socket_and_connect( const char* a_target_name,
 }
 
 
-int main( int argc, char* argv[] )
+void InitializeEventList( )
 {
+  gc_event_list[ 0 ] =
+      "Teardown UDP connection for faddr 80.58.4.34/37074 gaddr "
+      "10.0.0.187/53 laddr 192.168.0.2/53";
+  gc_event_list[ 1 ] =
+      "192.168.0.2 Accessed URL 212.227.109.224:/scriptlib/"
+      "ClientStdScripts.js";
+  gc_event_list[ 2 ] =
+      "Built outbound TCP connection 152083 for faddr "
+      "212.227.109.224/80 gaddr 10.0.0.187/56684 laddr "
+      "192.168.0.2/56684";
+  gc_event_list[ 3 ] =
+      "Teardown TCP connection 151957 faddr 212.227.109.224/80 gaddr "
+      "10.0.0.187/56613 laddr 192.168.0.2/56613 duration 0:04:56 "
+      "bytes 11069 (TCP Reset-I)";
+  gc_event_list[ 4 ] =
+      "Deny TCP (no connection) from 192.168.0.2/2799 to "
+      "192.168.202.1/2244 flags SYN ACK on interface inside";
+  gc_event_list[ 5 ] =
+      "Built UDP connection for faddr 211.9.32.235/32770 gaddr "
+      "10.0.0.187/53 laddr 192.168.0.2/53";
+  gc_event_list[ 6 ] =
+      "Authen Session End: user '', sid 1, elapsed 313 seconds";
+  gc_event_list[ 7 ] =
+      "Deny icmp src outside:Some-Cisco dst inside:10.0.0.187 "
+      "(type 3, code 1) by access-group \"outside_access_in\"";
+}
+
+
+int main( int argc, char* argv[] )
+{  
   if( argc != 3 )
   {
     fprintf( stderr, "Usage: csender hostname servicename\n" );
@@ -204,6 +218,8 @@ int main( int argc, char* argv[] )
   }
 
   int to_return = -1;
+
+  InitializeEventList( );
 
   // Connect to the given target
   int socket_to_target_fd = create_socket_and_connect( argv[ 1 ], argv[ 2 ] );
