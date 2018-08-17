@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,9 +15,13 @@
 
 static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
 
-int timestamp_rfc3339( char* ap_output_buffer )
+int timestamp_rfc3339( char* ap_output_buffer,
+                       bool* ap_output_second_changed_since_last_call )
 {
   int to_return = -1;
+  *ap_output_second_changed_since_last_call = false;
+
+  static int last_call_second = -1;
 
   // Fetch no. of seconds passed since epoch, and no. of nanoseconds into the
   // next second.
@@ -39,6 +44,11 @@ int timestamp_rfc3339( char* ap_output_buffer )
                 "%ldZ",
                 ( time_spec.tv_nsec / 1000 ) );
 
+      // Has the second field changed since the last call?
+      *ap_output_second_changed_since_last_call =
+          ( last_call_second != time.tm_sec );
+
+      last_call_second = time.tm_sec;
       to_return = 0;
     }
   }
@@ -51,10 +61,23 @@ void send_events( int a_socket )
   char timestamp[ DATETIME_LENGTH ];
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
+  bool second_changed_since_last_timestamp = false;
+  long num_second_changes = 0;
+  long num_events_sent = 0;
+
   while( 1 )
   {
-    if( timestamp_rfc3339( timestamp ) == 0 )
+    // Generate a timestamp. Has a full second passed since the last second
+    // change?
+    if( timestamp_rfc3339( timestamp,
+                           &second_changed_since_last_timestamp ) == 0 )
     {
+      if( second_changed_since_last_timestamp )
+      {
+        num_second_changes++;
+      }
+
+      // Send a new event, from the just generated timestamp
       snprintf( syslog_event,
                 SYSLOG_MSG_MAXLENGTH,
                 "<13>%s localhost.localdomain my.app: %s\n",
@@ -62,6 +85,18 @@ void send_events( int a_socket )
                 gc_event_list[ rand() % NUM_EVENTS_IN_EVENTLIST ] );
 
       send( a_socket, syslog_event, strlen( syslog_event ), 0 );
+
+      num_events_sent++;
+
+      // Tell user, once every (some) seconds...
+      if( second_changed_since_last_timestamp &&
+          num_second_changes > 0 &&
+          num_second_changes % 2 == 0 )
+      {
+        printf( "%10ld events sent, avg: %ld events/sec\n",
+                num_events_sent,
+                num_events_sent / num_second_changes );
+      }
     }
     else
     {
@@ -116,7 +151,8 @@ int create_socket_and_connect_from_info_list( const struct addrinfo* ap_list )
                    ip_address,
                    sizeof ip_address );
 
-        printf( "A connection with the target (%s) has been established.\n",
+        printf( "\nA connection with the target (%s) has been established. "
+                "Sending events...\n\n",
                 ip_address );
 
         // Just abandon the loop, once the socket has been created and
