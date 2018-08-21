@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <getopt.h>
 #include <netdb.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,6 +15,13 @@
 #define NUM_EVENTS_IN_EVENTLIST 8
 
 static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
+
+struct csender_arguments
+{
+  char* hostname;
+  char* servicename;
+  int   event_length;
+};
 
 int timestamp_rfc3339( char* ap_output_buffer,
                        bool* ap_output_second_changed_since_last_call )
@@ -245,27 +253,115 @@ void InitializeEventList( )
 }
 
 
-int main( int argc, char* argv[] )
-{  
-  if( argc != 3 )
+char* trim_initial_slashes( char* a_program_name )
+{
+  char* program_name = a_program_name;
+  char* next_slash = program_name;
+  do
   {
-    fprintf( stderr, "Usage: csender hostname servicename\n" );
+    next_slash = strchr( program_name, '/' );
+
+    if( next_slash != NULL )
+    {
+      program_name = next_slash + 1;
+    }
+  }
+  while( next_slash != NULL );
+
+  return program_name;
+}
+
+
+void print_usage( char* a_program_name )
+{
+  printf( "%s. A program that sends syslog events to a receiver. Written "
+          "in C using POSIX sockets.\n",
+          trim_initial_slashes( a_program_name ) );
+  printf( "usage:\n"
+          "    csender <hostname> <port> [-l|--length <n>]\n"
+          "options:\n"
+          "    -l --length      Length (in chars) of the events to send [1-900].\n" );
+}
+
+
+bool process_argument_list( int argc,
+                            char* argv[],
+                            struct csender_arguments* ap_arguments )
+{
+  ap_arguments->hostname = NULL;
+  ap_arguments->servicename = NULL;
+  ap_arguments->event_length = -1;
+
+  if( argc < 3 )
+  {
+    printf( "Too few arguments.\n" );
+    print_usage( argv[ 0 ] );
+  }
+
+  ap_arguments->hostname = argv[ 1 ];
+  ap_arguments->servicename = argv[ 2 ];
+
+  struct option long_options[] =
+  {
+  { "length", required_argument, 0, 'l' },
+  { 0, 0, 0, 0 }
+  };
+
+  int index, opt = 0;
+  while( ( opt =
+           getopt_long( argc, argv, "l:", long_options, &index ) ) != -1 )
+  {
+    switch( opt )
+    {
+      case 'l':
+      {
+        ap_arguments->event_length = atoi( optarg );
+
+        if( ap_arguments->event_length <= 0 ||
+            ap_arguments->event_length > 900 )
+        {
+          printf( "Invalid event length.\n" );
+          ap_arguments->event_length = -1;
+          print_usage( argv[ 0 ] );
+          return false;
+        }
+
+        break;
+      }
+      default:
+      {
+        printf( "Unknown option, or option without value.\n");
+        print_usage( argv[ 0 ] );
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+
+int main( int argc, char* argv[] )
+{    
+  struct csender_arguments arguments;
+  if( process_argument_list( argc, argv, &arguments ) )
+  {
+    InitializeEventList( );
+
+    // Connect to the given target
+    int socket_to_target_fd =
+        create_socket_and_connect( arguments.hostname,
+                                   arguments.servicename );
+    if( socket_to_target_fd != -1 )
+    {
+      // Send events to it
+      send_events( socket_to_target_fd );
+    }
+
+    return ( socket_to_target_fd != -1 );
+  }
+  else
+  {
     exit( 1 );
   }
-
-  int to_return = -1;
-
-  InitializeEventList( );
-
-  // Connect to the given target
-  int socket_to_target_fd = create_socket_and_connect( argv[ 1 ], argv[ 2 ] );
-  if( socket_to_target_fd != -1 )
-  {
-    // Send events to it
-    send_events( socket_to_target_fd );
-
-    to_return = 0;
-  }
-
-  return to_return;
 }
