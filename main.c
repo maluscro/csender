@@ -14,14 +14,15 @@
 #define SYSLOG_MSG_MAXLENGTH 1024
 #define NUM_EVENTS_IN_EVENTLIST 8
 
-static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
-
 struct csender_arguments
 {
-  char* hostname;
-  char* servicename;
-  int   event_length;
+  char*    hostname;
+  char*    servicename;
+  ssize_t  event_length;
 };
+
+static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
+
 
 int timestamp_rfc3339( char* ap_output_buffer,
                        bool* ap_output_second_changed_since_last_call )
@@ -64,8 +65,68 @@ int timestamp_rfc3339( char* ap_output_buffer,
   return to_return;
 }
 
-void send_events( int a_socket )
+
+void generate_event_body( size_t a_body_size,
+                          char* a_output_body )
+{
+  char* write_pos = a_output_body;
+  size_t length_so_far = 0;
+  const char* event = NULL;
+  size_t event_size = 0;
+
+  // Keep appending event messages until the provided body size has been
+  // reached...
+  while( 1 )
+  {
+    event = gc_event_list[ rand() % NUM_EVENTS_IN_EVENTLIST ];
+    event_size = strlen( event );
+
+    if( a_body_size == 0 )
+    {
+      a_body_size = event_size;
+    }
+
+    if( length_so_far + event_size >= a_body_size )
+    {
+      snprintf( write_pos, a_body_size - length_so_far + 1, "%s", event );
+      write_pos += ( a_body_size - length_so_far );
+      sprintf( write_pos, "\n%s", "\0" );
+
+      break;
+    }
+    else
+    {
+      sprintf( write_pos, "%s", event );
+      length_so_far += event_size;
+      write_pos += event_size;
+    }
+  }
+}
+
+
+void generate_event( char* a_output_event,
+                     const char* a_timestamp,
+                     const struct csender_arguments* ap_arguments )
+{
+  // First add the event header
+  sprintf( a_output_event,
+           "<13>%s localhost.localdomain my.app: %s",
+           a_timestamp,
+           "\0" );
+  char* a_output_event_end = a_output_event + strlen( a_output_event );
+
+  // Then append the event body
+  generate_event_body( ( ap_arguments->event_length == -1 ) ?
+                         0 :
+                         ( size_t ) ap_arguments->event_length,
+                       a_output_event_end );
+}
+
+
+void send_events( int a_socket, const struct csender_arguments* ap_arguments )
 {    
+  static long num_feedbacks = 0;
+
   char timestamp[ DATETIME_LENGTH ];
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
@@ -86,22 +147,20 @@ void send_events( int a_socket )
       }
 
       // Send a new event, from the just generated timestamp
-      snprintf( syslog_event,
-                SYSLOG_MSG_MAXLENGTH,
-                "<13>%s localhost.localdomain my.app: %s\n",
-                timestamp,
-                gc_event_list[ rand() % NUM_EVENTS_IN_EVENTLIST ] );
-
+      generate_event( syslog_event, timestamp, ap_arguments );
       send( a_socket, syslog_event, strlen( syslog_event ), 0 );
 
       num_events_sent++;
 
-      // Tell user, once every (some) seconds...
+      // Inform user, every few seconds...
       if( second_changed_since_last_timestamp &&
           num_second_changes > 0 &&
           num_second_changes % 2 == 0 )
       {
-        printf( "%10ld events sent, avg: %ld events/sec\n",
+        num_feedbacks++;
+
+        printf( "%4ld %10ld events sent, avg: %ld events/sec\n",
+                num_feedbacks,
                 num_events_sent,
                 num_events_sent / num_second_changes );
       }
@@ -292,6 +351,7 @@ bool process_argument_list( int argc,
   ap_arguments->servicename = NULL;
   ap_arguments->event_length = -1;
 
+  // Process mandatory arguments
   if( argc < 3 )
   {
     printf( "Too few arguments.\n" );
@@ -301,6 +361,7 @@ bool process_argument_list( int argc,
   ap_arguments->hostname = argv[ 1 ];
   ap_arguments->servicename = argv[ 2 ];
 
+  // Process options
   struct option long_options[] =
   {
   { "length", required_argument, 0, 'l' },
@@ -355,7 +416,7 @@ int main( int argc, char* argv[] )
     if( socket_to_target_fd != -1 )
     {
       // Send events to it
-      send_events( socket_to_target_fd );
+      send_events( socket_to_target_fd, &arguments );
     }
 
     return ( socket_to_target_fd != -1 );
