@@ -144,14 +144,13 @@ void send_events( int a_socket, const struct csender_arguments* ap_arguments )
       if( second_changed_since_last_timestamp )
       {
         num_second_changes++;
-      }
-
-      // Send a new event, from the just generated timestamp
-      generate_event( syslog_event, timestamp, ap_arguments );
-      send( a_socket, syslog_event, strlen( syslog_event ), 0 );
+      }     
 
       if( num_second_changes >= 0 )
       {
+        // Send a new event, from the just generated timestamp
+        generate_event( syslog_event, timestamp, ap_arguments );
+        send( a_socket, syslog_event, strlen( syslog_event ), 0 );
         num_events_sent++;
       }
 
