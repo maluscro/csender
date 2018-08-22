@@ -13,6 +13,7 @@
 #define DATETIME_LENGTH 28
 #define SYSLOG_MSG_MAXLENGTH 1024
 #define NUM_EVENTS_IN_EVENTLIST 8
+#define STATISTICS_INTERVAL 1
 
 struct csender_arguments
 {
@@ -55,7 +56,8 @@ int timestamp_rfc3339( char* ap_output_buffer,
 
       // Has the second field changed since the last call?
       *ap_output_second_changed_since_last_call =
-          ( last_call_second != time.tm_sec );
+          ( ( last_call_second != time.tm_sec ) &&
+            ( last_call_second >= 0 ) );
 
       last_call_second = time.tm_sec;
       to_return = 0;
@@ -131,7 +133,7 @@ void send_events( int a_socket, const struct csender_arguments* ap_arguments )
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
   bool second_changed_since_last_timestamp = false;
-  long num_second_changes = 0;
+  long num_second_changes = -1;
   long num_events_sent = 0;
 
   while( 1 )
@@ -150,12 +152,15 @@ void send_events( int a_socket, const struct csender_arguments* ap_arguments )
       generate_event( syslog_event, timestamp, ap_arguments );
       send( a_socket, syslog_event, strlen( syslog_event ), 0 );
 
-      num_events_sent++;
+      if( num_second_changes >= 0 )
+      {
+        num_events_sent++;
+      }
 
       // Inform user, every few seconds...
       if( second_changed_since_last_timestamp &&
-          num_second_changes > 0 &&
-          num_second_changes % 2 == 0 )
+          num_second_changes >= 1 &&
+          num_second_changes % STATISTICS_INTERVAL == 0 )
       {
         num_feedbacks++;
 
