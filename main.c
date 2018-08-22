@@ -127,8 +127,6 @@ void generate_event( char* a_output_event,
 
 void send_events( int a_socket, const struct csender_arguments* ap_arguments )
 {    
-  static long num_feedbacks = 0;
-
   char timestamp[ DATETIME_LENGTH ];
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
@@ -161,11 +159,9 @@ void send_events( int a_socket, const struct csender_arguments* ap_arguments )
       if( second_changed_since_last_timestamp &&
           num_second_changes >= 1 &&
           num_second_changes % STATISTICS_INTERVAL == 0 )
-      {
-        num_feedbacks++;
-
-        printf( "%4ld %10ld events sent, avg: %ld events/sec\n",
-                num_feedbacks,
+      {        
+        printf( "%4ld sec. %10ld events sent, avg: %ld events/sec\n",
+                num_second_changes,
                 num_events_sent,
                 num_events_sent / num_second_changes );
       }
