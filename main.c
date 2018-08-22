@@ -12,8 +12,9 @@
 
 #define DATETIME_LENGTH 28
 #define SYSLOG_MSG_MAXLENGTH 1024
-#define NUM_EVENTS_IN_EVENTLIST 8
 #define STATISTICS_INTERVAL 1
+#define RANDOM_EVENT_BODY_MIN_LENGTH 100
+#define RANDOM_EVENT_BODY_MAX_LENGTH 190
 
 struct csender_arguments
 {
@@ -21,9 +22,6 @@ struct csender_arguments
   char*    servicename;
   ssize_t  event_length;
 };
-
-static const char* gc_event_list[ NUM_EVENTS_IN_EVENTLIST ];
-
 
 int timestamp_rfc3339( char* ap_output_buffer,
                        bool* ap_output_second_changed_since_last_call )
@@ -71,38 +69,21 @@ int timestamp_rfc3339( char* ap_output_buffer,
 void generate_event_body( size_t a_body_size,
                           char* a_output_body )
 {
-  char* write_pos = a_output_body;
-  size_t length_so_far = 0;
-  const char* event = NULL;
-  size_t event_size = 0;
-
-  // Keep appending event messages until the provided body size has been
-  // reached...
-  while( 1 )
+  // If no body size is provided, give it a random value between
+  // RANDOM_EVENT_BODY_MIN_LENGTH and RANDOM_EVENT_BODY_MAX_LENGTH.
+  if( a_body_size == 0 )
   {
-    event = gc_event_list[ rand() % NUM_EVENTS_IN_EVENTLIST ];
-    event_size = strlen( event );
-
-    if( a_body_size == 0 )
-    {
-      a_body_size = event_size;
-    }
-
-    if( length_so_far + event_size >= a_body_size )
-    {
-      snprintf( write_pos, a_body_size - length_so_far + 1, "%s", event );
-      write_pos += ( a_body_size - length_so_far );
-      sprintf( write_pos, "\n%s", "\0" );
-
-      break;
-    }
-    else
-    {
-      sprintf( write_pos, "%s", event );
-      length_so_far += event_size;
-      write_pos += event_size;
-    }
+    a_body_size =
+        RANDOM_EVENT_BODY_MIN_LENGTH +
+        ( rand( ) % ( RANDOM_EVENT_BODY_MAX_LENGTH -
+                      RANDOM_EVENT_BODY_MIN_LENGTH + 1 ) );
   }
+
+  // Fill the event body with a random character, between 65 ('A') and 90 ('Z')
+  memset( a_output_body, 65 + ( rand( ) % 25 ), a_body_size );
+
+  // Null-terminate the event
+  sprintf( a_output_body + a_body_size, "\n%s", "\0" );
 }
 
 
@@ -127,6 +108,9 @@ void generate_event( char* a_output_event,
 
 void send_events( int a_socket, const struct csender_arguments* ap_arguments )
 {    
+  // Set seed for random numbers generation
+  srand( ( unsigned int ) time( NULL ) );
+
   char timestamp[ DATETIME_LENGTH ];
   char syslog_event[ SYSLOG_MSG_MAXLENGTH + 1 ];
 
@@ -282,36 +266,6 @@ int create_socket_and_connect( const char* a_target_name,
 }
 
 
-void InitializeEventList( )
-{
-  gc_event_list[ 0 ] =
-      "Teardown UDP connection for faddr 80.58.4.34/37074 gaddr "
-      "10.0.0.187/53 laddr 192.168.0.2/53";
-  gc_event_list[ 1 ] =
-      "192.168.0.2 Accessed URL 212.227.109.224:/scriptlib/"
-      "ClientStdScripts.js";
-  gc_event_list[ 2 ] =
-      "Built outbound TCP connection 152083 for faddr "
-      "212.227.109.224/80 gaddr 10.0.0.187/56684 laddr "
-      "192.168.0.2/56684";
-  gc_event_list[ 3 ] =
-      "Teardown TCP connection 151957 faddr 212.227.109.224/80 gaddr "
-      "10.0.0.187/56613 laddr 192.168.0.2/56613 duration 0:04:56 "
-      "bytes 11069 (TCP Reset-I)";
-  gc_event_list[ 4 ] =
-      "Deny TCP (no connection) from 192.168.0.2/2799 to "
-      "192.168.202.1/2244 flags SYN ACK on interface inside";
-  gc_event_list[ 5 ] =
-      "Built UDP connection for faddr 211.9.32.235/32770 gaddr "
-      "10.0.0.187/53 laddr 192.168.0.2/53";
-  gc_event_list[ 6 ] =
-      "Authen Session End: user '', sid 1, elapsed 313 seconds";
-  gc_event_list[ 7 ] =
-      "Deny icmp src outside:Some-Cisco dst inside:10.0.0.187 "
-      "(type 3, code 1) by access-group \"outside_access_in\"";
-}
-
-
 char* trim_initial_slashes( char* a_program_name )
 {
   char* program_name = a_program_name;
@@ -407,8 +361,6 @@ int main( int argc, char* argv[] )
   struct csender_arguments arguments;
   if( process_argument_list( argc, argv, &arguments ) )
   {
-    InitializeEventList( );
-
     // Connect to the given target
     int socket_to_target_fd =
         create_socket_and_connect( arguments.hostname,
