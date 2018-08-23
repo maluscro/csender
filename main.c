@@ -12,9 +12,10 @@
 
 #define DATETIME_LENGTH 28
 #define SYSLOG_MSG_MAXLENGTH 1024
+#define SYSLOG_HEADER_LENGTH 62
 #define STATISTICS_INTERVAL 1
-#define RANDOM_EVENT_BODY_MIN_LENGTH 100
-#define RANDOM_EVENT_BODY_MAX_LENGTH 190
+#define RANDOM_EVENT_MIN_LENGTH 100
+#define RANDOM_EVENT_MAX_LENGTH 225
 
 struct csender_arguments
 {
@@ -49,7 +50,7 @@ int timestamp_rfc3339( char* ap_output_buffer,
       // Add the number of microseconds into the next second
       snprintf( &( ap_output_buffer[ num_chars_copied ] ),
                 DATETIME_LENGTH - num_chars_copied,
-                "%ldZ",
+                "%6ldZ",
                 ( time_spec.tv_nsec / 1000 ) );
 
       // Has the second field changed since the last call?
@@ -66,24 +67,26 @@ int timestamp_rfc3339( char* ap_output_buffer,
 }
 
 
-void generate_event_body( size_t a_body_size,
+void generate_event_body( size_t a_event_length,
                           char* a_output_body )
 {
   // If no body size is provided, give it a random value between
-  // RANDOM_EVENT_BODY_MIN_LENGTH and RANDOM_EVENT_BODY_MAX_LENGTH.
-  if( a_body_size == 0 )
+  // RANDOM_EVENT_MIN_LENGTH and RANDOM_EVENT_MAX_LENGTH.
+  if( a_event_length == 0 )
   {
-    a_body_size =
-        RANDOM_EVENT_BODY_MIN_LENGTH +
-        ( rand( ) % ( RANDOM_EVENT_BODY_MAX_LENGTH -
-                      RANDOM_EVENT_BODY_MIN_LENGTH + 1 ) );
+    a_event_length =
+        RANDOM_EVENT_MIN_LENGTH +
+        ( rand( ) % ( RANDOM_EVENT_MAX_LENGTH -
+                      RANDOM_EVENT_MIN_LENGTH + 1 ) );
   }
 
+  size_t body_length = a_event_length - ( SYSLOG_HEADER_LENGTH + 1 );
+
   // Fill the event body with a random character, between 65 ('A') and 90 ('Z')
-  memset( a_output_body, 65 + ( rand( ) % 25 ), a_body_size );
+  memset( a_output_body, 65 + ( rand( ) % 25 ), body_length );
 
   // Null-terminate the event
-  sprintf( a_output_body + a_body_size, "\n%s", "\0" );
+  sprintf( a_output_body + body_length, "\n%s", "\0" );
 }
 
 
@@ -291,6 +294,19 @@ char* trim_initial_slashes( char* a_program_name )
 }
 
 
+size_t min_event_length( )
+{
+  // Minimum: The syslog information + trailing \n + 1 character
+  return SYSLOG_HEADER_LENGTH + 1 + 1;
+}
+
+
+size_t max_event_length( )
+{
+  return SYSLOG_MSG_MAXLENGTH;
+}
+
+
 void print_usage( char* a_program_name )
 {
   printf( "%s. A program that sends syslog events to a receiver. Written "
@@ -302,7 +318,7 @@ void print_usage( char* a_program_name )
           "    -h, --help      Print this help.\n"
           "    -H, --host      Address or name of the host to send events to. Default: 127.0.0.1.\n"
           "    -p, --port      Port or service name to send events to. Default: 8000.\n"
-          "    -l, --length    Length (in chars) of the events to send [1-900].\n" );
+          "    -l, --length    Length (in chars) of the events to send [%ld-%ld].\n", min_event_length(), max_event_length() );
 }
 
 
@@ -349,8 +365,8 @@ bool process_argument_list( int argc,
       {
         ap_arguments->event_length = atoi( optarg );
 
-        if( ap_arguments->event_length <= 0 ||
-            ap_arguments->event_length > 900 )
+        if( ap_arguments->event_length < ( ssize_t )min_event_length( ) ||
+            ap_arguments->event_length > ( ssize_t )max_event_length( ) )
         {
           printf( "Invalid event length.\n" );
           ap_arguments->event_length = -1;
