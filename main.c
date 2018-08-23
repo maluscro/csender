@@ -172,7 +172,9 @@ void* get_in_addr( struct sockaddr* ap_socket_address )
 }
 
 
-int create_socket_and_connect_from_info_list( const struct addrinfo* ap_list )
+int create_socket_and_connect_from_info_list( const struct addrinfo* ap_list,
+                                              const char* a_target_name,
+                                              const char* a_service_name )
 {
   int socket_fd_to_return = -1;
 
@@ -202,9 +204,11 @@ int create_socket_and_connect_from_info_list( const struct addrinfo* ap_list )
                    ip_address,
                    sizeof ip_address );
 
-        printf( "\nA connection with the target (%s) has been established. "
+        printf( "\nA connection with the target (%s:%s) has been established. "
                 "Sending events...\n\n",
-                ip_address );
+                ( strcmp( ip_address, a_target_name ) == 0 ) ? ip_address :
+                                                               a_target_name,
+                a_service_name );
 
         // Just abandon the loop, once the socket has been created and
         // connected.
@@ -250,7 +254,9 @@ int create_socket_and_connect( const char* a_target_name,
   {
     // Actually create a socket, and connect it to the target
     socket_fd_to_return =
-        create_socket_and_connect_from_info_list( p_addrinfo_list );
+        create_socket_and_connect_from_info_list( p_addrinfo_list,
+                                                  a_target_name,
+                                                  a_service_name );
 
     // Free mem storing the addrinfo items
     freeaddrinfo( p_addrinfo_list );
@@ -291,9 +297,12 @@ void print_usage( char* a_program_name )
           "in C using POSIX sockets.\n",
           trim_initial_slashes( a_program_name ) );
   printf( "usage:\n"
-          "    csender <hostname> <port> [-l|--length <n>]\n"
+          "    csender [option]...\n"
           "options:\n"
-          "    -l --length      Length (in chars) of the events to send [1-900].\n" );
+          "    -h, --help      Print this help.\n"
+          "    -H, --host      Address or name of the host to send events to. Default: 127.0.0.1.\n"
+          "    -p, --port      Port or service name to send events to. Default: 8000.\n"
+          "    -l, --length    Length (in chars) of the events to send [1-900].\n" );
 }
 
 
@@ -301,33 +310,41 @@ bool process_argument_list( int argc,
                             char* argv[],
                             struct csender_arguments* ap_arguments )
 {
-  ap_arguments->hostname = NULL;
-  ap_arguments->servicename = NULL;
+  ap_arguments->hostname = "127.0.0.1";
+  ap_arguments->servicename = "8000";
   ap_arguments->event_length = -1;
-
-  // Process mandatory arguments
-  if( argc < 3 )
-  {
-    printf( "Too few arguments.\n" );
-    print_usage( argv[ 0 ] );
-  }
-
-  ap_arguments->hostname = argv[ 1 ];
-  ap_arguments->servicename = argv[ 2 ];
 
   // Process options
   struct option long_options[] =
   {
+  { "help", no_argument, 0, 'h' },
+  { "host", required_argument, 0, 'H' },
+  { "port", required_argument, 0, 'p' },
   { "length", required_argument, 0, 'l' },
   { 0, 0, 0, 0 }
   };
 
   int index, opt = 0;
   while( ( opt =
-           getopt_long( argc, argv, "l:", long_options, &index ) ) != -1 )
+           getopt_long( argc, argv, "hH:p:l:", long_options, &index ) ) != -1 )
   {
     switch( opt )
     {
+      case 'h':
+      {
+        print_usage( argv[ 0 ] );
+        return false;
+      }
+      case 'H':
+      {
+        ap_arguments->hostname = optarg;
+        break;
+      }
+      case 'p':
+      {
+        ap_arguments->servicename = optarg;
+        break;
+      }
       case 'l':
       {
         ap_arguments->event_length = atoi( optarg );
