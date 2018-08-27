@@ -14,14 +14,12 @@
 #define SYSLOG_MSG_MAXLENGTH 1024
 #define SYSLOG_HEADER_LENGTH 62
 #define STATISTICS_INTERVAL 1
-#define RANDOM_EVENT_MIN_LENGTH 100
-#define RANDOM_EVENT_MAX_LENGTH 225
 
 struct csender_arguments
 {
   char*    hostname;
   char*    servicename;
-  ssize_t  event_length;
+  size_t   event_length;
 };
 
 int timestamp_rfc3339( char* ap_output_buffer,
@@ -70,16 +68,6 @@ int timestamp_rfc3339( char* ap_output_buffer,
 void generate_event_body( size_t a_event_length,
                           char* a_output_body )
 {
-  // If no body size is provided, give it a random value between
-  // RANDOM_EVENT_MIN_LENGTH and RANDOM_EVENT_MAX_LENGTH.
-  if( a_event_length == 0 )
-  {
-    a_event_length =
-        RANDOM_EVENT_MIN_LENGTH +
-        ( rand( ) % ( RANDOM_EVENT_MAX_LENGTH -
-                      RANDOM_EVENT_MIN_LENGTH + 1 ) );
-  }
-
   size_t body_length = a_event_length - ( SYSLOG_HEADER_LENGTH + 1 );
 
   // Fill the event body with a random character, between 65 ('A') and 90 ('Z')
@@ -102,10 +90,7 @@ void generate_event( char* a_output_event,
   char* a_output_event_end = a_output_event + strlen( a_output_event );
 
   // Then append the event body
-  generate_event_body( ( ap_arguments->event_length == -1 ) ?
-                         0 :
-                         ( size_t ) ap_arguments->event_length,
-                       a_output_event_end );
+  generate_event_body( ap_arguments->event_length, a_output_event_end );
 }
 
 
@@ -318,7 +303,7 @@ void print_usage( char* a_program_name )
           "    -h, --help      Print this help.\n"
           "    -H, --host      Address or name of the host to send events to. Default: 127.0.0.1.\n"
           "    -p, --port      Port or service name to send events to. Default: 8000.\n"
-          "    -l, --length    Length (in chars) of the events to send [%ld-%ld].\n", min_event_length(), max_event_length() );
+          "    -l, --length    Length (in chars) of the events to send [%ld-%ld]. Default: 300\n", min_event_length(), max_event_length() );
 }
 
 
@@ -328,7 +313,7 @@ bool process_argument_list( int argc,
 {
   ap_arguments->hostname = "127.0.0.1";
   ap_arguments->servicename = "8000";
-  ap_arguments->event_length = -1;
+  ap_arguments->event_length = 300;
 
   // Process options
   struct option long_options[] =
